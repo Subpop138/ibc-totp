@@ -9,7 +9,7 @@ RUN nix-env -f '<nixpkgs>' -iA \
 RUN nix-env -f '<nixpkgs>' -iA \
   javaPackages.openjfx21 \
   curl unzip \
-  xorg.xorgserver xorg.xauth xvfb-run x11vnc \
+  xorg-server xvfb-run x11vnc \
   openbox tint2 \
   bash coreutils findutils gnused gnugrep util-linux
 
