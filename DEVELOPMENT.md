@@ -115,7 +115,7 @@ The `nix develop` command:
 - Installs ant, openjdk21, curl, unzip
 - Downloads TWS standalone installer
 - Patches it to use system Java
-- Extracts required jars to `tws-jars/1044/jars/`
+- Extracts required jars to `tws-jars/stable/jars/`
 
 ### Nix Commands
 

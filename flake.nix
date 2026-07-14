@@ -22,7 +22,7 @@
         ];
 
         shellHook = ''
-          TWS_JARS_DIR="$PWD/tws-jars/1044/jars"
+          TWS_JARS_DIR="$PWD/tws-jars/stable/jars"
           if [ ! -d "$TWS_JARS_DIR" ] || [ -z "$(ls -A "$TWS_JARS_DIR"/*.jar 2>/dev/null)" ]; then
             echo "=========================================="
             echo "Downloading and installing TWS..."
@@ -30,7 +30,7 @@
             cd tws-jars
             curl -sL "https://download2.interactivebrokers.com/installers/tws/latest-standalone/tws-latest-standalone-linux-x64.sh" -o tws-installer.sh
             sed -i 's|\$INSTALL4J_JAVA_PREFIX "\$app_java_home/bin/java"|java|' tws-installer.sh
-            echo -e "$PWD/1044\ny\nn" | bash tws-installer.sh -- -c 2>/dev/null
+            echo -e "$PWD/stable\ny\nn" | bash tws-installer.sh -- -c 2>/dev/null
             rm tws-installer.sh
             cd ..
             echo "TWS installed to: $TWS_JARS_DIR"
