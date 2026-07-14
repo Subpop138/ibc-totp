@@ -12,6 +12,12 @@ ARG TWS_BUILD=stable
 # openjfx classpath into IBC.
 #
 # The base image's `<nixpkgs>` channel points at nixos-unstable.
+# Allow unfree for `corefonts` (Microsoft EULA) and `vista-fonts` (also
+# Microsoft-distributed). Both ship useful fonts not in any free set.
+RUN mkdir -p ~/.config/nixpkgs && \
+    printf '{ allowUnfree = true; }\n' > ~/.config/nixpkgs/config.nix && \
+    cat ~/.config/nixpkgs/config.nix
+
 RUN nix-env -f '<nixpkgs>' -iA \
       zulu21 \
       openjfx21 \
@@ -19,9 +25,41 @@ RUN nix-env -f '<nixpkgs>' -iA \
       xorg-server xauth xvfb-run x11vnc \
       openbox tint2 \
       ungoogled-chromium \
-      bash coreutils findutils gnused gnugrep util-linux
+      bash coreutils findutils gnused gnugrep util-linux \
+      fontconfig \
+      socat \
+      noto-fonts \
+      noto-fonts-color-emoji \
+      corefonts \
+      fira-sans \
+      googlesans-code \
+      roboto \
+      ubuntu-sans \
+      ubuntu-sans-mono \
+      # chromium 149's text shaping pipeline (HarfBuzz) needs ICU.
+      icu
 
 ENV PATH="/root/.nix-profile/bin:${PATH}"
+
+# Wire fontconfig to the system where chromium lives. The Nix-installed
+# `fontconfig` doesn't ship a top-level /root/.nix-profile/etc/fonts/fonts.conf
+# (only per-family conf.d snippets); we write one at /etc/fonts/fonts.conf
+# further down in the Dockerfile. Point FONTCONFIG_FILE there.
+ENV \
+  FONTCONFIG_PATH=/root/.nix-profile/etc/fonts \
+  XDG_DATA_DIRS=/root/.nix-profile/share:/usr/share \
+  FONTCONFIG_FILE=/etc/fonts/fonts.conf
+
+ENV CHROMIUM_FLAGS="--no-first-run --no-default-browser-check --disable-features=Translate,InfiniteSessionRestore"
+
+# fontconfig also needs the `fc-cache` cache built or chromium will
+# time out on each font lookup. Run it now so the first chromium
+# startup is fast.
+RUN FC_NUM=$(/root/.nix-profile/bin/fc-list 2>&1 | wc -l) && \
+    echo "fontconfig indexed ${FC_NUM} fonts (BEFORE fc-cache)" && \
+    /root/.nix-profile/bin/fc-cache -f 2>&1 | tail -5 && \
+    FC_NUM=$(/root/.nix-profile/bin/fc-list 2>&1 | wc -l) && \
+    echo "fontconfig indexed ${FC_NUM} fonts (AFTER fc-cache)"
 
 # Create user manually (nixos/nix has immutable /etc/passwd and /etc/group)
 RUN mkdir -p /home/tws && \
@@ -75,7 +113,9 @@ RUN find /home/tws/IBC -name "*.sh" -type f -exec chmod +x {} \; && \
 ENV TZ="Asia/Jerusalem"
 ENV DISPLAY=:0
 ENV XDG_CONFIG_HOME=/home/tws
-ENV FONTCONFIG_FILE=/etc/fonts/fonts.conf
+# (FONTCONFIG_FILE is set above to the Nix-installed fontconfig config.
+#  Drop the previous `ENV FONTCONFIG_FILE=/etc/fonts/fonts.conf` — that
+#  path doesn't exist in this image, while the Nix path does.)
 
 USER root
 COPY ibc-config.ini /home/tws/IBC/
@@ -85,7 +125,58 @@ COPY ibc-start.sh /ibc-start.sh
 # (it does `[[ ! -e "$java_path/java" ]]` and aborts otherwise). The wrapper \
 # just exec's the system java. \
 COPY --chmod=0755 java-wrapper.sh /home/tws/java
-RUN chown -R tws:tws /home/tws
+# Pre-create /home/tws/chromium with the right ownership and perms so a
+# fresh chromium-data named volume (which docker creates as root) gets
+# the right uid/gid the moment TWS's JxBrowser panel starts.
+RUN mkdir -p /home/tws/chromium && \
+    mkdir -p /home/tws/jts && \
+    chown -R tws:tws /home/tws
+
+# Write a fonts.conf so fontconfig has *sane* defaults. The upstream
+# Nix `fontconfig` package ships only per-family conf.d snippets and
+# no top-level fonts.conf; without one, fontconfig's built-in fallback
+# resolves the generic `sans-serif` request to whichever font sorts
+# first in /root/.nix-profile/share/fonts — historically that has
+# been an icon font like Font Awesome 7 (which has zero Latin glyphs,
+# so every page renders with empty/tofu boxes), and also Google Sans
+# Code (a coding display font with ligatures — wrong for body text).
+#
+# We:
+#   1. Reject icon/coding fonts by file glob so they cannot be picked
+#      at all.
+#   2. Map sans-serif/serif/monospace aliases to a chosen chain
+#      anchored on Liberation/DejaVu (always present, broad coverage).
+RUN mkdir -p /etc/fonts && \
+    printf '<?xml version="1.0"?>\n\
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n\
+<fontconfig>\n\
+  <dir>/root/.nix-profile/share/fonts</dir>\n\
+  <cachedir>/root/.cache/fontconfig</cachedir>\n\
+  <include ignore_missing="yes">/root/.nix-profile/etc/fonts/conf.d</include>\n\
+  <rejectfont><glob>/root/.nix-profile/share/fonts/googlesans-code/*</glob></rejectfont>\n\
+  <alias>\n\
+    <family>sans-serif</family>\n\
+    <accept><family>DejaVu Sans</family></accept>\n\
+    <accept><family>Liberation Sans</family></accept>\n\
+    <accept><family>Noto Sans</family></accept>\n\
+    <default><family>DejaVu Sans</family></default>\n\
+  </alias>\n\
+  <alias>\n\
+    <family>serif</family>\n\
+    <accept><family>Liberation Serif</family></accept>\n\
+    <accept><family>DejaVu Serif</family></accept>\n\
+    <accept><family>Noto Serif</family></accept>\n\
+    <default><family>Liberation Serif</family></default>\n\
+  </alias>\n\
+  <alias>\n\
+    <family>monospace</family>\n\
+    <accept><family>DejaVu Sans Mono</family></accept>\n\
+    <accept><family>Liberation Mono</family></accept>\n\
+    <accept><family>Hack</family></accept>\n\
+    <default><family>DejaVu Sans Mono</family></default>\n\
+  </alias>\n\
+</fontconfig>\n' > /etc/fonts/fonts.conf && \
+    ls -la /etc/fonts/
 
 USER tws
 ENV PATH="/home/tws:${PATH}"
