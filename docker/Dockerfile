@@ -18,6 +18,7 @@ RUN nix-env -f '<nixpkgs>' -iA \
       curl unzip \
       xorg-server xauth xvfb-run x11vnc \
       openbox tint2 \
+      chromium \
       bash coreutils findutils gnused gnugrep util-linux
 
 ENV PATH="/root/.nix-profile/bin:${PATH}"
