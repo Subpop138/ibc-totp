@@ -2,38 +2,40 @@ FROM nixos/nix:latest
 
 ARG IBC_VERSION=3.23.0
 
+RUN nix-env -f '<nixpkgs>' -iA \
+  openjdk21
+
 # Install packages
 RUN nix-env -f '<nixpkgs>' -iA \
-    openjdk21 \
-    javaPackages.openjfx21 \
-    curl unzip \
-    xorg.xorgserver xorg.xauth xvfb-run x11vnc \
-    openbox tint2 \
-    bash coreutils findutils gnused gnugrep util-linux
+  javaPackages.openjfx21 \
+  curl unzip \
+  xorg.xorgserver xorg.xauth xvfb-run x11vnc \
+  openbox tint2 \
+  bash coreutils findutils gnused gnugrep util-linux
 
 ENV PATH="/root/.nix-profile/bin:${PATH}"
 
 # Create user manually (nixos/nix has immutable /etc/passwd and /etc/group)
 RUN mkdir -p /home/tws && \
-    echo "tws:x:1000:1000::/home/tws:/bin/sh" >> /etc/passwd && \
-    echo "tws:x:1000:" >> /etc/group && \
-    chown -R 1000:1000 /home/tws
+  echo "tws:x:1000:1000::/home/tws:/bin/sh" >> /etc/passwd && \
+  echo "tws:x:1000:" >> /etc/group && \
+  chown -R 1000:1000 /home/tws
 
 USER tws
 WORKDIR /home/tws
 
-# Install IBKR TWS - patch installer to use system java
+# Install IBKR TWS - use temporary OpenJDK for installer only
 RUN mkdir -p ibkr-tws/1044 && \
     curl -sL "https://download2.interactivebrokers.com/installers/tws/latest-standalone/tws-latest-standalone-linux-x64.sh" -o /tmp/tws-installer.sh && \
-    sed -i 's|\$INSTALL4J_JAVA_PREFIX "\$app_java_home/bin/java"|java|' /tmp/tws-installer.sh && \
+    sed -i 's|\$INSTALL4J_JAVA_PREFIX "\\$app_java_home/bin/java"|/nix/store/*jdk*/bin/java|' /tmp/tws-installer.sh && \
     echo -e "/home/tws/ibkr-tws/1044\ny\nn" | bash /tmp/tws-installer.sh -- -c && \
-    rm /tmp/tws-installer.sh
+    rm -rf /tmp/tws-installer.sh
 
 # Install IBC (from local build with TOTP support)
 USER root
 COPY IBC /home/tws/IBC/
 RUN find /home/tws/IBC -name "*.sh" -type f -exec chmod +x {} \; && \
-    chown -R tws:tws /home/tws/IBC
+  chown -R tws:tws /home/tws/IBC
 
 ENV TZ="Asia/Jerusalem"
 ENV DISPLAY=:0
@@ -44,7 +46,6 @@ USER root
 COPY ibc-config.ini /home/tws/IBC/
 COPY ibkr-entrypoint.sh /docker-entrypoint.sh
 COPY ibc-start.sh /ibc-start.sh
-COPY java-wrapper.sh /home/tws/java
 RUN chmod +x /home/tws/java && chown tws:tws /home/tws/java
 
 USER tws

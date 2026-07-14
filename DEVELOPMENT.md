@@ -274,7 +274,6 @@ ibc-totp/
 │   ├── ibc-config.ini         # IBC configuration
 │   ├── ibkr-entrypoint.sh     # Container entrypoint
 │   ├── ibc-start.sh           # IBC + TWS launcher
-│   ├── java-wrapper.sh        # Delegates to Nix-installed JVM
 │   └── IBC/                   # Built IBC with TOTP support
 │       ├── IBC.jar
 │       ├── lib/               # googleauth-*.jar
