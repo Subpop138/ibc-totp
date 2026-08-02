@@ -30,7 +30,7 @@ while [[ "${attempt}" -lt "${MAX_RETRIES}" ]]; do
     attempt=$((attempt + 1))
     echo "IBC start attempt ${attempt}/${MAX_RETRIES}..."
     sleep 15
-    if "${IBC_PATH}/scripts/ibcstart.sh" "${TWS_VERSION}" --tws-path="${TWS_PATH}" --tws-settings-path="${TWS_SETTINGS_PATH}" --ibc-path="${IBC_PATH}" --ibc-ini="${IBC_INI}" --mode=live --java-path="/home/tws" --user="${TWS_USERNAME}" --pw="${TWS_PASSWORD}"; then
+    if "${IBC_PATH}/scripts/ibcstart.sh" "${TWS_VERSION}" --tws-path="${TWS_PATH}" --tws-settings-path="${TWS_SETTINGS_PATH}" --ibc-path="${IBC_PATH}" --ibc-ini="${IBC_INI}" --mode=paper --java-path="/home/tws" --user="${TWS_USERNAME}" --pw="${TWS_PASSWORD}"; then
         attempt=0
     fi
 done

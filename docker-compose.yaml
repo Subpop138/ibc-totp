@@ -5,7 +5,8 @@ services:
       dockerfile: Dockerfile
     container_name: ibkr-tws-prod
     ports:
-      - "5901:5900"  # VNC
+      - "127.0.0.1:5901:5900"  # VNC (localhost only -- x11vnc runs with -nopw)
+      - "127.0.0.1:7497:7497"  # API (paper)
     secrets:
       - tws
     restart: unless-stopped
@@ -13,7 +14,7 @@ services:
       - tws-data:/home/tws/jts
     environment:
       - DISPLAY=:0
-      - TZ=Asia/Jerusalem
+      - TZ=America/New_York
     shm_size: '1g'  # Chromium's POSIX shared memory backend crashes
                     # with "No space left on device" at the default 64MB
                     # once >~1k fonts are indexed for fontconfig.

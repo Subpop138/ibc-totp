@@ -2,18 +2,18 @@
 docker/tws.secrets
 
 # TWS installation (downloaded)
-tws-jars
+/tws-jars
 
-# IBC source (cloned from upstream)
-IBC
-
-# Downloaded dependencies (downloaded at build time)
-docker/IBC/lib/*.jar
+# IBC source (cloned from upstream) -- root-level only. NOTE: this bare
+# pattern used to also match docker/IBC/ (a different, legitimately
+# tracked directory holding our built IBC.jar + patched ibcstart.sh) --
+# anchoring with a leading slash was the fix.
+/IBC
 
 # Patches folder
 ibc-patches/lib
 
 # IBC build artifacts (when using IBC from upstream)
-IBC/resources/IBC.jar
-IBC/target/
-IBC/dist/
+/IBC/resources/IBC.jar
+/IBC/target/
+/IBC/dist/

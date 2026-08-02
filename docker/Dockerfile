@@ -19,8 +19,8 @@ RUN mkdir -p ~/.config/nixpkgs && \
     cat ~/.config/nixpkgs/config.nix
 
 RUN nix-env -f '<nixpkgs>' -iA \
-      zulu21 \
-      openjfx21 \
+      openjdk25 \
+      openjfx25 \
       curl unzip \
       xorg-server xauth xvfb-run x11vnc \
       openbox tint2 \
@@ -40,6 +40,25 @@ RUN nix-env -f '<nixpkgs>' -iA \
       icu
 
 ENV PATH="/root/.nix-profile/bin:${PATH}"
+
+# This is a Nix-based image with no traditional /bin/bash -- Nix installs
+# bash under /root/.nix-profile/bin/bash. IBC's own upstream scripts
+# (ibcstart.sh etc, copied in unmodified) use a #!/bin/bash shebang, which
+# needs a real /bin/bash to resolve.
+RUN mkdir -p /bin && ln -sf /root/.nix-profile/bin/bash /bin/bash
+
+# The Nix openjfx25 package above is an intermediate build artifact (no
+# module-info.class, not directly usable via --module-path) -- kept only
+# because removing it busts the expensive nix-env cache layer above. TWS
+# doesn't actually use JPMS for javafx (NoClassDefFoundError, not a module
+# error) -- it just needs the classic jars on the classpath. .jmod files
+# are a jlink-only build format, not usable via --module-path at runtime
+# either, so use the official Gluon classic SDK zip instead.
+RUN mkdir -p /opt/javafx-jars && \
+    curl -fsSL https://download2.gluonhq.com/openjfx/25/openjfx-25_linux-x64_bin-sdk.zip -o /tmp/openjfx-sdk.zip && \
+    unzip -q /tmp/openjfx-sdk.zip -d /tmp/openjfx-sdk-extract && \
+    mv /tmp/openjfx-sdk-extract/javafx-sdk-25/lib/* /opt/javafx-jars/ && \
+    rm -rf /tmp/openjfx-sdk.zip /tmp/openjfx-sdk-extract
 
 # Wire fontconfig to the system where chromium lives. The Nix-installed
 # `fontconfig` doesn't ship a top-level /root/.nix-profile/etc/fonts/fonts.conf
@@ -118,7 +137,7 @@ ENV XDG_CONFIG_HOME=/home/tws
 #  path doesn't exist in this image, while the Nix path does.)
 
 USER root
-COPY ibc-config.ini /home/tws/IBC/
+COPY ibc-config.ini /home/tws/IBC/config.ini
 COPY ibkr-entrypoint.sh /docker-entrypoint.sh
 COPY ibc-start.sh /ibc-start.sh
 # /home/tws/java is required by ibcstart.sh when --java-path=/home/tws is set \
