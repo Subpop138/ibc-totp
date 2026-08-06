@@ -1,0 +1,16 @@
+[Unit]
+Description=Native IB Gateway (IBC-automated master login, all 3 real IBKR accounts)
+After=ibgw-xvfb.service ibgw-vnc.service network-online.target
+Requires=ibgw-xvfb.service
+Wants=network-online.target
+StartLimitIntervalSec=1800
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=%h/ibc-totp/native/ibgw-start.sh
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=default.target

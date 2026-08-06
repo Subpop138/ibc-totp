@@ -17,3 +17,7 @@ ibc-patches/lib
 /IBC/resources/IBC.jar
 /IBC/target/
 /IBC/dist/
+
+# Secrets (native Gateway deploy)
+native/tws.secrets
+native/tws.secrets.*
