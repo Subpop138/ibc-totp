@@ -41,10 +41,16 @@ chmod 600 "${IBC_INI}"
 
 find "${IBC_PATH}" -iname "*.sh" -exec chmod +x {} +
 
-exec "${IBC_PATH}/scripts/ibcstart.sh" stable --gateway \
+# 2026-09-23: switched from the "stable" channel (10.45.1j) to "latest"
+# (10.51.1a). IBC hardcodes -Dchannel=latest in its java command, so a stable
+# build made the launch metadata inconsistent and IBKR began rejecting it with
+# an "invalid twsInfo" dialog that IBC has no handler for -- it then waits on
+# that dialog forever. --java-path is deliberately omitted so IBC uses the
+# JRE bundled with the install, which includes JavaFX (the system OpenJDK does
+# not, which is what the javafx-jars workaround existed for).
+exec "${IBC_PATH}/scripts/ibcstart.sh" latest --gateway \
     --tws-path="$HOME/ibgateway-native" \
     --tws-settings-path="${TWS_SETTINGS_PATH}" \
     --ibc-path="${IBC_PATH}" \
     --ibc-ini="${IBC_INI}" \
-    --mode=live \
-    --java-path=/usr/lib/jvm/java-25-openjdk-amd64/bin
+    --mode=live

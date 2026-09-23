@@ -370,30 +370,28 @@ set JAVA_VM_OPTIONS=%JAVA_VM_OPTIONS% -DjtsConfigDir="%TWS_SETTINGS_PATH%"
 set IBC_SESSION_ID="%RANDOM%%RANDOM%"
 set JAVA_VM_OPTIONS=%JAVA_VM_OPTIONS% -Dibcsessionid=%IBC_SESSION_ID%
 
-rem The TWS/Gateway desktop login renders passkey (WebAuthn) second-factor authentication in
-rem an embedded browser (JxBrowser). The official install4j launcher starts the JVM with
-rem -DjxBrowserKey=<license key>; IBC builds its own java command and so omits it. Without the
-rem key, JxBrowser cannot initialise ("Failed to create browser") and passkey login fails. As
-rem IBKR Securities Japan makes passkey the only login 2FA from 2026-06-30, IBC must pass this
-rem key too. It is embedded in the install and is version-specific, so read it dynamically.
-rem This does NOT bypass 2FA - the user still completes the passkey ceremony.
-set "JXBROWSER_OPT="
-if exist "%INSTALL4J%\i4jparams.conf" (
-	for /f "usebackq delims=" %%L in (`findstr /C:"-DjxBrowserKey=" "%INSTALL4J%\i4jparams.conf"`) do (
-		rem Keep everything after the first -DjxBrowserKey= . In i4jparams.conf the key is
-		rem terminated by a double-quote, so replace that quote with a space and take token 1.
-		set "JXLINE=%%L"
-		set "JXTAIL=!JXLINE:*-DjxBrowserKey=!"
-		set JXTAIL=!JXTAIL:"= !
-		for /f "tokens=1" %%K in ("!JXTAIL!") do set "JXBROWSER_OPT=-DjxBrowserKey%%K"
-	)
-)
-if defined JXBROWSER_OPT set "JAVA_VM_OPTIONS=%JAVA_VM_OPTIONS% %JXBROWSER_OPT%"
-
 echo Java VM Options=%JAVA_VM_OPTIONS%
 echo.
 
 call :GetAutoRestartOption
+echo.
+
+::======================== Generate the extra JAVA options =====================
+
+echo Generating the extra JAVA options
+
+:: Thanks to Copilot for generating this script and the associated PowerShell script
+:: (getExtraJavaOptions.ps1). It went through many failed iterations of batch scripting
+:: before coming up with this. No wonder I couldn't make it work!
+
+set PHASE=Generating the extra JAVA options
+
+set EXTRA_JAVA_OPTIONS=
+for /f "usebackq delims=" %%A in (
+  `powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%IBC_PATH%\scripts\getExtraJavaOptions.ps1" "%INSTALL4J%"`
+) do set "EXTRA_JAVA_OPTIONS=%%A"
+
+echo EXTRA_JAVA_OPTIONS = %EXTRA_JAVA_OPTIONS%
 echo.
 
 ::======================== Determine the location of java.exe ===============
@@ -413,6 +411,10 @@ if not defined JAVA_PATH (
 		for /f "usebackq tokens=1 delims=" %%i in ("%INSTALL4J%\inst_jre.cfg") do set JAVA_PATH=%%i\bin
 		if not exist "!JAVA_PATH!\java.exe" set JAVA_PATH=
 	)
+)
+
+if not defined JAVA_PATH (
+	if exist "%INSTALL4J%\..\jre\bin\java.exe" set JAVA_PATH=%INSTALL4J%\..\jre\bin
 )
 
 if not defined JAVA_PATH (
@@ -469,32 +471,29 @@ if exist "%PROGRAM_PATH%\ibgateway.exe" (
 )
 echo.
 
-set moduleAccess=--add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-exports=java.base/sun.util=ALL-UNNAMED --add-exports=java.desktop/com.sun.java.swing.plaf.motif=ALL-UNNAMED --add-opens=java.desktop/java.awt=ALL-UNNAMED --add-opens=java.desktop/java.awt.dnd=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing.event=ALL-UNNAMED --add-opens=java.desktop/javax.swing.plaf.basic=ALL-UNNAMED --add-opens=java.desktop/javax.swing.table=ALL-UNNAMED --add-opens=java.desktop/sun.awt=ALL-UNNAMED --add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmedia=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmedia.events=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmedia.locator=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmediaimpl=ALL-UNNAMED --add-exports=javafx.web/com.sun.javafx.webkit=ALL-UNNAMED --add-opens=jdk.management/com.sun.management.internal=ALL-UNNAMED
-
 :: temporarily change the current working directory because using "%JAVA_PATH%\java.exe" in the following 'for' statement causes an error
 pushd "%JAVA_PATH%"
-for /f "tokens=1,2 delims== usebackq" %%A in (`java.exe -XshowSettings:properties 2^>^&1 ^| findstr /C:"java.version ="`) do set java_version=%%B
+for /f "tokens=1,2 delims== usebackq" %%A in (`java.exe -XshowSettings:properties 2^>^&1 ^| findstr /C:"java.version ="`) do set JAVA_VERSION=%%B
 :: restore the original current working directory
 popd
 
-echo Java Version is %java_version%
-if not "%java_version:1.8=%"=="%java_version%" set moduleAccess=
+echo Java Version is %JAVA_VERSION%
 
 echo.
 echo Starting IBC with this command:
-echo "%JAVA_PATH%\java.exe" %moduleaccess% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" %HIDDEN_CREDENTIALS% %MODE%
+echo "%JAVA_PATH%\java.exe" %EXTRA_JAVA_OPTIONS% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" %HIDDEN_CREDENTIALS% %MODE%
 echo.
 
 if defined GOT_FIX_CREDENTIALS (
 	if defined GOT_API_CREDENTIALS (
-		"%JAVA_PATH%\java.exe" %moduleaccess% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" "%FIX_USER_ID%" "%FIX_PASSWORD%" "%IB_USER_ID%" "%IB_PASSWORD%" %MODE% 2>NUL
+		"%JAVA_PATH%\java.exe" %EXTRA_JAVA_OPTIONS% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" "%FIX_USER_ID%" "%FIX_PASSWORD%" "%IB_USER_ID%" "%IB_PASSWORD%" %MODE% 2>NUL
 	) else (
-		"%JAVA_PATH%\java.exe" %moduleaccess% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" "%FIX_USER_ID%" "%FIX_PASSWORD%" %MODE% 2>NUL
+		"%JAVA_PATH%\java.exe" %EXTRA_JAVA_OPTIONS% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" "%FIX_USER_ID%" "%FIX_PASSWORD%" %MODE% 2>NUL
 	)
 ) else if defined GOT_API_CREDENTIALS (
-		"%JAVA_PATH%\java.exe" %moduleaccess% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" "%IB_USER_ID%" "%IB_PASSWORD%" %MODE% 2>NUL
+		"%JAVA_PATH%\java.exe" %EXTRA_JAVA_OPTIONS% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" "%IB_USER_ID%" "%IB_PASSWORD%" %MODE% 2>NUL
 ) else (
-		"%JAVA_PATH%\java.exe" %moduleaccess% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" %MODE% 2>NUL
+		"%JAVA_PATH%\java.exe" %EXTRA_JAVA_OPTIONS% -cp  "%IBC_CLASSPATH%" %JAVA_VM_OPTIONS% %AUTORESTART_OPTION% %ENTRY_POINT% "%CONFIG%" %MODE% 2>NUL
 )
 
 ::======================== Handle IBC exit conditions ==============

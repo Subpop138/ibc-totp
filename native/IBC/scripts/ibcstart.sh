@@ -266,7 +266,7 @@ if [[ ! -e "${program_path}/jars" ]]; then
 fi
 jars="${program_path}/jars"
 install4j="${program_path}/.install4j"
-	
+
 if [[ ! -e "$tws_settings_path" ]]; then
 	error_exit $E_IBC_PATH_NOT_EXIST "TWS settings path: $tws_settings_path does not exist"
 fi
@@ -291,7 +291,7 @@ fi
 
 if [[ -n "$java_path" ]]; then
 	if [[ ! -e "$java_path/java" ]]; then
-		error_exit $E_NO_JAVA "Java installaton at $java_path/java does not exist"
+		error_exit $E_NO_JAVA "Java installation at $java_path/java does not exist"
 	fi
 fi
 
@@ -306,7 +306,14 @@ for jar in "${jars}"/*.jar; do
 	fi
 	ibc_classpath="${ibc_classpath}${jar}"
 done
-ibc_classpath="${ibc_classpath}:$install4j/i4jruntime.jar:${ibc_path}/IBC.jar:${ibc_path}/lib/googleauth-1.5.0.jar:/home/dan/ibgateway-native/javafx-jars/*"
+ibc_classpath="${ibc_classpath}:$install4j/i4jruntime.jar:${ibc_path}/IBC.jar:${ibc_path}/lib/googleauth-1.5.0.jar"
+
+# LOCAL: only needed when running on a JVM without JavaFX. A Gateway install
+# that ships its own JRE (10.48+) already has the JavaFX modules, and adding
+# these jars to the classpath then conflicts with them.
+if [[ ! -d "${program_path}/jre" && -d "${tws_path}/javafx-jars" ]]; then
+	ibc_classpath="${ibc_classpath}:${tws_path}/javafx-jars/*"
+fi
 
 echo -e "Classpath=$ibc_classpath"
 echo
@@ -343,24 +350,8 @@ java_vm_options="$java_vm_options -DjtsConfigDir=${tws_settings_path}"
 ibc_session_id=$(mktemp -u XXXXXXXX)
 java_vm_options="$java_vm_options -Dibcsessionid=$ibc_session_id"
 
-# The TWS/Gateway desktop login renders passkey (WebAuthn) second-factor authentication in an
-# embedded browser (JxBrowser). The official install4j launcher starts the JVM with
-# -DjxBrowserKey=<license key>; IBC builds its own java command and so omits it. Without the
-# key, JxBrowser cannot initialise (IllegalArgumentException in EngineOptions.licenseKey ->
-# "Failed to create browser") and passkey login fails. As IBKR Securities Japan makes passkey
-# the only login 2FA from 2026-06-30, IBC must pass this key too. It is embedded in the
-# install and is version-specific, so read it dynamically rather than hardcoding. This does
-# NOT bypass 2FA - the user still completes the passkey ceremony.
-if [[ -z "$jxbrowser_key" && -r "${install4j}/i4jparams.conf" ]]; then
-	# The key sits in i4jparams.conf as -DjxBrowserKey=<key>" (terminated by a quote/space);
-	# capture it up to that terminator so the whole key is taken regardless of its characters.
-	jxbrowser_key=$(grep -aoE 'DjxBrowserKey=[^" ]+' "${install4j}/i4jparams.conf" | head -n 1 | sed 's/^DjxBrowserKey=//')
-fi
-if [[ -n "$jxbrowser_key" ]]; then
-	java_vm_options="$java_vm_options -DjxBrowserKey=$jxbrowser_key"
-fi
-
 echo -e "Java VM Options=$java_vm_options$autorestart_option"
+echo
 
 function find_auto_restart {
 	echo "Finding autorestart file"
@@ -414,6 +405,37 @@ function find_auto_restart {
 
 find_auto_restart
 
+#======================== Generate the extra JAVA VM options =====================
+
+# Thanks to Copilot for generating this script.
+
+echo Generating the extra JAVA options
+
+confPath="$install4j/i4jparams.conf"
+
+# Extract the line containing the javaOptions variable
+line=$(grep '<variable name="javaOptions"' "$confPath")
+
+# Extract the value="..." content using Bash parameter expansion
+extra_java_options="${line#*value=\"}"
+extra_java_options="${extra_java_options%%\"*}"
+
+echo "extra_java_options = $extra_java_options"
+
+# LOCAL CUSTOMISATION (not upstream): this deploy runs on a plain OpenJDK that
+# does not bundle JavaFX, but Gateway's login UI needs it. The JavaFX jars go on
+# the classpath above; their native libraries must be on java.library.path too.
+# Without this, Gateway starts, renders nothing at all, and IBC exits 1112
+# "failed to display login dialog" with no exception anywhere to explain it.
+# Carried over from the 3.24.1 script during the 3.24.2 upgrade (2026-09-23) --
+# RE-APPLY BOTH JavaFX EDITS ON EVERY FUTURE IBC UPGRADE.
+if [[ ! -d "${program_path}/jre" && -d "${tws_path}/javafx-jars" ]]; then
+	# Only for a JavaFX-less system JVM. NEVER set this when the Gateway ships
+	# its own JRE: it overrides that JRE's native library path and breaks the
+	# bundled libglass/libjfx* natives.
+	extra_java_options="$extra_java_options -Djava.library.path=${tws_path}/javafx-jars"
+	echo "extra_java_options (with local JavaFX) = $extra_java_options"
+fi
 echo
 
 #======================== Determine the location of java executable ========
@@ -446,6 +468,11 @@ if [[ "$os" = "$OS_LINUX" ]]; then
 	if [[ ! -n "$java_path" ]]; then
 		java_path=$(read_from_config "$install4j/inst_jre.cfg")
 	fi
+	if [[ ! -n "$java_path" ]]; then
+		if [[ -e "$install4j/../jre/bin/java" ]]; then
+			java_path="$install4j/../jre/bin"
+		fi
+	fi
 elif [[ "$os" = "$OS_OSX" ]]; then
 	java_path="$install4j/jre.bundle/Contents/Home/jre/bin"
 	if [[ ! -e "$java_path/java" ]]; then
@@ -470,6 +497,9 @@ elif [[ ! -e "$java_path/java" ]]; then
 	error_exit $E_NO_JAVA "No java executable found in supplied path $java_path"
 fi
 
+echo Location of java executable=$java_path
+echo
+
 "$java_path/java" -XshowSettings:properties 2>&1 |grep '^ *java.runtime.version ='
 if [[ $("$java_path/java" -XshowSettings:properties 2>&1) = *"java.runtime.version = 1.8"* ]]; then
 	useJava8="yes"
@@ -477,9 +507,6 @@ else
 	useJava8="no"
 fi
 
-
-echo Location of java executable=$java_path
-echo
 
 #======================== Start IBC ===============================
 
@@ -509,27 +536,23 @@ elif [[ "$os" = "$OS_OSX" ]]; then
 fi
 echo
 
-if [[ $useJava8 != "yes" ]]; then
-moduleAccess="--add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-exports=java.base/sun.util=ALL-UNNAMED --add-exports=java.desktop/com.sun.java.swing.plaf.motif=ALL-UNNAMED --add-opens=java.desktop/java.awt=ALL-UNNAMED --add-opens=java.desktop/java.awt.dnd=ALL-UNNAMED --add-opens=java.desktop/javax.swing=ALL-UNNAMED --add-opens=java.desktop/javax.swing.event=ALL-UNNAMED --add-opens=java.desktop/javax.swing.plaf.basic=ALL-UNNAMED --add-opens=java.desktop/javax.swing.table=ALL-UNNAMED --add-opens=java.desktop/sun.awt=ALL-UNNAMED --add-exports=java.desktop/sun.awt.X11=ALL-UNNAMED --add-exports=java.desktop/sun.swing=ALL-UNNAMED --add-opens=javafx.graphics/com.sun.javafx.application=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmedia=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmedia.events=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmedia.locator=ALL-UNNAMED --add-exports=javafx.media/com.sun.media.jfxmediaimpl=ALL-UNNAMED --add-exports=javafx.web/com.sun.javafx.webkit=ALL-UNNAMED --add-opens=jdk.management/com.sun.management.internal=ALL-UNNAMED -Djava.library.path=/home/dan/ibgateway-native/javafx-jars"
-fi
-
 while :
 do
 	echo "Starting $program with this command:"
-	echo -e "\"$java_path/java\" $moduleAccess -cp \"$ibc_classpath\" $java_vm_options$autorestart_option $entry_point \"$ibc_ini\" $hidden_credentials ${mode}"
+	echo -e "\"$java_path/java\" $extra_java_options -cp \"$ibc_classpath\" $java_vm_options$autorestart_option $entry_point \"$ibc_ini\" $hidden_credentials ${mode}"
 	echo
 
 	# forward signals (see https://veithen.github.io/2014/11/16/sigterm-propagation.html)
 	trap 'kill -TERM $PID' TERM INT
 
 	if [[ -n $got_fix_credentials && -n $got_api_credentials ]]; then
-		"$java_path/java" $moduleAccess -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" "$fix_user_id" "$fix_password" "$ib_user_id" "$ib_password" ${mode} 2>/dev/null &
+		"$java_path/java" $extra_java_options -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" "$fix_user_id" "$fix_password" "$ib_user_id" "$ib_password" ${mode} 2>/dev/null &
 	elif  [[ -n $got_fix_credentials ]]; then
-		"$java_path/java" $moduleAccess -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" "$fix_user_id" "$fix_password" ${mode} 2>/dev/null &
+		"$java_path/java" $extra_java_options -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" "$fix_user_id" "$fix_password" ${mode} 2>/dev/null &
 	elif [[ -n $got_api_credentials ]]; then
-		"$java_path/java" $moduleAccess -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" "$ib_user_id" "$ib_password" ${mode} 2>/dev/null &
+		"$java_path/java" $extra_java_options -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" "$ib_user_id" "$ib_password" ${mode} 2>/dev/null &
 	else
-		"$java_path/java" $moduleAccess -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" ${mode} 2>/dev/null &
+		"$java_path/java" $extra_java_options -cp "$ibc_classpath" $java_vm_options$autorestart_option $entry_point "$ibc_ini" ${mode} 2>/dev/null &
 	fi
 
 	PID=$!
@@ -567,6 +590,8 @@ do
 	
 	# wait a few seconds before restarting
 	echo IBC will restart shortly
+	echo
+	
 	echo sleep 2
 done
 
